@@ -4,10 +4,13 @@
 #
 # usage: ha-detect [-i NAME]
 #
-# Read-only; two or three GETs:
+# Read-only; two or three GETs, plus one ssh command if needed:
 #   1. /api/config            Core version and config_dir
-#   2. /api/hassio/info       Supervisor proxy — 404 when there is no Supervisor
+#   2. /api/hassio/info       Supervisor proxy — 404 when there is no Supervisor;
+#                             401 means the Supervisor IS there but this Core
+#                             version refuses user tokens on the REST proxy
 #   3. /api/hassio/host/info  fallback for the host OS string
+#   4. ssh: ha info --raw-json   fallback when the proxy refused (needs HA_SSH_HOST)
 #
 #   no Supervisor, config_dir is /config   → container
 #   no Supervisor, config_dir elsewhere    → core
@@ -56,6 +59,7 @@ ha_log "core: ${version:-unknown version}, config_dir=${config_dir:-unknown}"
 
 # 2. Supervisor proxy -------------------------------------------------------
 supervisor=no
+proxy_refused=0
 host_os=""
 hassos=""
 if ! ha_request GET /api/hassio/info; then
@@ -70,21 +74,44 @@ case "$HA_HTTP_STATUS" in
   404|400|405)
     supervisor=no ;;
   401|403)
-    ha_die "the Supervisor proxy refused the token (HTTP $HA_HTTP_STATUS) — /api/hassio/* needs a token from an administrator user" ;;
+    # The view exists (so the hassio integration is loaded) but refused us.
+    # Recent Core versions reject every user token on the REST proxy, even
+    # the owner's; the UI goes over websocket instead. Supervisor is present.
+    supervisor=yes
+    proxy_refused=1 ;;
   *)
     ha_die "unexpected HTTP $HA_HTTP_STATUS from /api/hassio/info" ;;
 esac
 
-# 3. Host OS fallback -------------------------------------------------------
-if [ "$supervisor" = yes ] && [ -z "$host_os" ]; then
+# 3. Host OS fallbacks ------------------------------------------------------
+if [ "$supervisor" = yes ] && [ -z "$host_os" ] && [ "$proxy_refused" = 0 ]; then
   if ha_request GET /api/hassio/host/info && [ "$HA_HTTP_STATUS" = 200 ]; then
     host_os="$(json_get "$HA_RESPONSE" .data.operating_system)"
+  fi
+fi
+if [ "$supervisor" = yes ] && [ -z "$host_os" ]; then
+  if [ -n "$HA_SSH_HOST" ]; then
+    ha_log "supervisor proxy unavailable over REST; asking the ha CLI over ssh ($HA_SSH_HOST)"
+    ha_ensure_tmpdir
+    if ssh -o BatchMode=yes -o ConnectTimeout=8 "$HA_SSH_HOST" 'ha info --raw-json' > "$HA_TMPDIR/hainfo" 2>/dev/null; then
+      hassos="$(json_get "$HA_TMPDIR/hainfo" .data.hassos)"
+      host_os="$(json_get "$HA_TMPDIR/hainfo" .data.operating_system)"
+      machine="$(json_get "$HA_TMPDIR/hainfo" .data.machine)"
+      [ -n "$machine" ] && ha_log "machine: $machine"
+    else
+      ha_warn "ssh to $HA_SSH_HOST failed; cannot tell OS from Supervised"
+    fi
+  else
+    ha_warn "no HA_SSH_HOST in the instance file; cannot tell OS from Supervised without ssh"
   fi
 fi
 
 # Decide ----------------------------------------------------------------------
 if [ "$supervisor" = yes ]; then
   ha_log "supervisor: present (host: ${host_os:-unknown OS}${hassos:+, hassos $hassos})"
+  if [ -z "$host_os" ] && [ -z "$hassos" ]; then
+    ha_die "Supervisor is present but the host OS is unknown, so this is either os or supervised — fix ssh access and re-run"
+  fi
   case "$(lower "$host_os")" in
     *"home assistant os"*|*hassos*|*haos*) install_type=os ;;
     *) if [ -n "$hassos" ]; then install_type=os; else install_type=supervised; fi ;;

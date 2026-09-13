@@ -165,6 +165,14 @@ and the mount from wherever the laptop is. The public names
 — fine as a fallback `HA_URL`, not for ssh or Samba. The apartment's LAN needs
 its own path before steps 2–4 can be used there from the laptop.
 
+### A note on the Supervisor REST proxy
+
+`/api/hassio/*` through Core returns 401 for every user token on Core
+2025.12 — including the owner's. It is not a permissions problem with the
+`ha-manager` user. Supervisor operations go over ssh instead (`ha` CLI, or
+`curl http://supervisor/...` with the add-on's own `SUPERVISOR_TOKEN`), which
+is what CLAUDE.md documents.
+
 ## 6. Verify from the laptop
 
 ```

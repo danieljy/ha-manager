@@ -227,7 +227,10 @@ versions also expose it as `/homeassistant`). Logs: `ha core logs`, or
    has no undo.
 
 8. When a registry or Z-Wave question comes up, the answer is `ha-ws`, not
-   the browser. The browser is for UI-only flows (pairing PINs, OAuth).
+   the browser. Permission rules: read-only wrapper forms are allowed
+   outright; wrapper writes are judged by auto mode's classifier (no blanket
+   "ask" — it prompted on every read and defeated the point). Bulk registry
+   changes go through `ha-ws --file` so the list is explicit. The browser is for UI-only flows (pairing PINs, OAuth).
 
 9. Don't create or edit `instances/*.env`; the user maintains those. Don't
    create `.ha-instance`. Don't touch `.storage` — it is HA's own registry,

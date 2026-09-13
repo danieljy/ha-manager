@@ -156,7 +156,7 @@ if len(results) == 1:
         sys.stderr.write(f"[ha] {cmd['type']} failed: {err.get('code')}: {err.get('message')}\n"); failed = 1
 else:
     for cmd, r in results:
-        label = cmd["type"] + "".join(f" {k}={v}" for k, v in cmd.items() if k not in ("type", "id"))
+        label = (cmd["type"] + "".join(f" {k}={v}" for k, v in cmd.items() if k not in ("type", "id")))[:110]
         if r.get("success"):
             print(f"ok    {label}" + ("" if r.get("result") is None else "  → " + json.dumps(r["result"])[:120]))
         else:

@@ -240,7 +240,16 @@ things not to touch). Filled in as they're established.
 
 ### ha
 
-_(empty)_
+- **Host reboots (HAOS updates, `ha host reboot`): never reboot from inside the
+  guest.** The Z-Wave stick (Aeotec, USB passthrough `host=0658:0200` on
+  Proxmox VM 100) drops off the VM on a guest-initiated reboot and every
+  Z-Wave node goes unavailable. Instead: install the update, then the user does
+  **Shutdown → Start** on the VM in Proxmox (a real QEMU restart). Verified
+  2026-09-13. After any reboot, confirm `/dev/ttyACM0` exists and the
+  `_node_status` sensors are `alive`; a node marked `dead` usually just needs
+  its `button.<name>_ping` pressed.
+- Z-Wave JS UI's serial port is still `/dev/ttyACM0`; the stable path is
+  `/dev/serial/by-id/usb-0658_0200-if00` (not yet switched).
 
 ### 25e
 

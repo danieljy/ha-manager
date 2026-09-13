@@ -132,11 +132,15 @@ with ws:
     sys.stderr.write(f"[ha] ws connected, HA {msg.get('ha_version', '?')}\n")
     for i, cmd in enumerate(cmds, start=1):
         cmd = dict(cmd); cmd["id"] = i
-        ws.send(json.dumps(cmd))
-        while True:
-            r = json.loads(ws.recv())
-            if r.get("id") == i and r.get("type") == "result":
-                break
+        try:
+            ws.send(json.dumps(cmd))
+            while True:
+                r = json.loads(ws.recv())
+                if r.get("id") == i and r.get("type") == "result":
+                    break
+        except Exception as e:  # ConnectionClosed, timeout: HA restarted or went away mid-call
+            sys.stderr.write(f"[ha] connection lost during {cmd['type']}: {type(e).__name__} — the command may still have been applied\n")
+            sys.exit(1)
         results.append((cmd, r))
 
 def dump(obj):

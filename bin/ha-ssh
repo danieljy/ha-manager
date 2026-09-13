@@ -5,7 +5,7 @@
 #
 # No COMMAND opens an interactive shell. Flags must come first: everything
 # from the first non-flag word on is handed to the remote shell verbatim, so
-# `ha-ssh -i prox grep -i foo /config/x.yaml` works as expected.
+# `ha-ssh -i ha grep -i foo /config/x.yaml` works as expected.
 #
 # Commands that restart, reload, stop, update, delete, move or overwrite
 # (including `>` redirects, tee, cp, sed -i) go through the protection guard.
@@ -13,9 +13,9 @@
 # diff; a heredoc through ssh does not.
 #
 # examples:
-#   ha-ssh -i prox ha core check
-#   ha-ssh -i prox ha core logs
-#   ha-ssh -i pi  --yes ha core restart
+#   ha-ssh -i ha ha core check
+#   ha-ssh -i ha ha core logs
+#   ha-ssh -i 25e --yes ha core restart
 #
 # exit status: ssh's, or 2 no instance · 3 blocked by guard
 

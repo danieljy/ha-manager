@@ -30,17 +30,17 @@ SETUP-HAOS.md       per-instance setup: SSH add-on, keys, jq, Samba mount
 2. **ssh alias** per instance in `~/.ssh/config` (hostname, port, user, key).
    The instance file references the alias only.
 3. **Mount** each instance's `config` share at its own path
-   (both shares are called `config`, so `~/mnt/ha-prox` and `~/mnt/ha-pi`).
+   (both shares are called `config`, so `~/mnt/ha` and `~/mnt/25e`).
 4. **Instance files:**
    ```
-   cp instances/example.env instances/prox.env
-   cp instances/example.env instances/pi.env
+   cp instances/example.env instances/ha.env
+   cp instances/example.env instances/25e.env
    chmod 600 instances/*.env
    ```
    Fill in label, URL, token, ssh alias, mount path, protected flag.
-5. **Check:** `bin/ha-ls` should show both instances, and `up` for whichever
-   is reachable from where you are. Then `bin/ha-detect -i prox` confirms
-   the install type.
+5. **Check:** `bin/ha-ls` should show both instances and `up` for whichever
+   answers from where you are. Then `bin/ha-detect -i ha` confirms the
+   install type.
 6. Optionally put `bin/` on your `PATH`.
 
 Requirements on the laptop: bash 3.2+ (macOS default is fine), curl, ssh;
@@ -58,7 +58,7 @@ from, in order:
 If none of those is set, the script exits with the list of configured
 instances. Every run prints `[ha] instance: NAME — label — url` on stderr so
 you always see where a command is going. Use `.ha-instance` or
-`export HA_INSTANCE=prox` for a session where you're only working on one
+`export HA_INSTANCE=ha` for a session where you're only working on one
 instance; use `-i` when you're switching between them.
 
 ### Protected instances
@@ -69,13 +69,16 @@ update, delete or overwrite — unless the same command is run with `--yes`.
 Read-only operations, template rendering, config checks and backup creation
 are always allowed.
 
-## Networks and Tailscale
+## Networks
 
-`prox` is on the local LAN; `pi` is on another network reached over
-Tailscale. Running Tailscale on **both** instances (the Tailscale add-on)
-gives each a stable MagicDNS hostname, so `HA_URL` and the ssh `HostName`
-stop depending on where you're sitting: the same instance file works from
-home, from the pi's network, or from anywhere else. Without that, `prox` is
-only reachable from home and its URL has to change when you're away.
+- **`ha`** (house, Shore Rd) — this laptop is always on the homelab LAN over
+  WireGuard, so `http://ha.lan:8123`, the SSH add-on and the Samba share are
+  all reachable directly, from anywhere the laptop has internet. The public
+  name `https://ha.danieljy.com` (behind Cloudflare) also works and is the
+  fallback if the tunnel is down.
+- **`25e`** (apartment, Manhattan) — `https://25e.danieljy.com` (behind
+  Cloudflare) reaches the API from anywhere. SSH and the Samba mount need a
+  path onto that LAN, which doesn't exist from the laptop yet; until it does,
+  `25e` is API-only.
 
-`bin/ha-ls` is the quick answer to "which one can I reach from here?".
+`bin/ha-ls` is the quick answer to "which one answers from here right now?".

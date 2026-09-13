@@ -9,13 +9,13 @@ undo. That fact drives most of the rules below.
 
 ## Instances
 
-| name   | what                              | how it's reached                    |
-|--------|-----------------------------------|-------------------------------------|
-| `prox` | HA OS VM on the local Proxmox box | same LAN as this laptop             |
-| `pi`   | HA OS on a Raspberry Pi           | a different network, over Tailscale |
+| name  | what                                | how it's reached                                                                 |
+|-------|-------------------------------------|----------------------------------------------------------------------------------|
+| `ha`  | the house (Shore Rd) — the homelab  | `http://ha.lan:8123`, direct: this laptop is always on the homelab LAN over WireGuard. Public name `https://ha.danieljy.com` (Cloudflare) is the fallback. |
+| `25e` | the apartment (Manhattan)           | `https://25e.danieljy.com` (Cloudflare) for the API from anywhere. Its LAN — SSH, Samba — has no path from here yet. |
 
-Both run Home Assistant OS, so both have the Supervisor and the `ha` CLI.
-Per-instance details (URL, ssh alias, mount path, protected flag) live in
+Both are believed to be Home Assistant OS (Supervisor + `ha` CLI);
+`bin/ha-detect` confirms. Per-instance details (URL, ssh alias, mount path, protected flag) live in
 `instances/<name>.env`; `instances/example.env` documents the fields.
 
 **The target instance is always explicit.** Every script takes `-i <name>`
@@ -24,8 +24,8 @@ of configured instances if none is given. There is no default, because a
 default is how the wrong house gets restarted. **If the user hasn't named an
 instance, ask which one before running anything.** Every invocation prints
 `[ha] instance: …` on stderr — read it and check it says what you expect.
-`bin/ha-ls` shows which instances are reachable from the current network;
-often only one is.
+`bin/ha-ls` shows which instances answer right now. Expect `25e` to be API-only
+until its LAN is reachable; anything needing ssh or the mount there will fail.
 
 ## Three channels
 
@@ -95,7 +95,7 @@ POST /api/hassio/core/restart | core/check | addons/<slug>/restart
 evaluates against live state in milliseconds, with no reload cycle:
 
 ```
-bin/ha-api -i prox POST /api/template '{"template": "{{ states(\"sensor.x\") | float(0) > 20 }}"}'
+bin/ha-api -i ha POST /api/template '{"template": "{{ states(\"sensor.x\") | float(0) > 20 }}"}'
 ```
 
 Iterate there until the expression is right, then put it in YAML.
@@ -181,10 +181,10 @@ versions also expose it as `/homeassistant`). Logs: `ha core logs`, or
 Per-instance conventions (naming schemes, package layout, what lives where,
 things not to touch). Filled in as they're established.
 
-### prox
+### ha
 
 _(empty)_
 
-### pi
+### 25e
 
 _(empty)_

@@ -9,10 +9,10 @@
 #   --raw    don't pretty-print through jq
 #
 # examples:
-#   ha-api -i prox GET /api/config
-#   ha-api -i prox GET /api/states/light.kitchen
-#   ha-api -i prox POST /api/template '{"template": "{{ states.light | list | count }}"}'
-#   ha-api -i prox POST /api/services/light/turn_on '{"entity_id": "light.kitchen"}'
+#   ha-api -i ha GET /api/config
+#   ha-api -i ha GET /api/states/light.kitchen
+#   ha-api -i ha POST /api/template '{"template": "{{ states.light | list | count }}"}'
+#   ha-api -i ha POST /api/services/light/turn_on '{"entity_id": "light.kitchen"}'
 #
 # The token comes from instances/NAME.env and reaches curl through a private
 # config file; it is never put on a command line or echoed. Every non-GET

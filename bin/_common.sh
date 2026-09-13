@@ -82,7 +82,7 @@ ha_print_instance_list() {
 #   --                                            end of common flags
 # With HA_PARSE_STOP_AT_POSITIONAL=1 parsing stops at the first non-flag word
 # and everything after it passes through untouched — ha-ssh needs that so
-# `ha-ssh -i prox grep -i foo file` doesn't eat "-i foo".
+# `ha-ssh -i ha grep -i foo file` doesn't eat "-i foo".
 # ---------------------------------------------------------------------------
 ha_parse_args() {
   HA_ARGS=()

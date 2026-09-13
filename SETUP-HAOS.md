@@ -52,7 +52,7 @@ Add-on page → **Network** section → find `22/tcp`, which shows as *Disabled*
 → restart the add-on.
 
 Until that box is filled in, `ssh` from the laptop fails with connection
-refused and it is easy to spend a while blaming keys or Tailscale.
+refused and it is easy to spend a while blaming keys or the tunnel.
 
 ### 2b. Authorized keys
 
@@ -100,21 +100,20 @@ don't need it; the add-on's port is the one this tooling uses. If you see
 `~/.ssh/config`:
 
 ```
-Host ha-prox
-    HostName prox.your-tailnet.ts.net    # or the LAN IP / homeassistant.local
-    Port 22                              # the host port from step 2a
-    User root                            # the official add-on logs in as root
-    IdentityFile ~/.ssh/id_ed25519
+Host ha
+    HostName ha.lan        # the homelab name, reachable over WireGuard
+    Port 22                # the host port from step 2a
+    User root              # the official add-on logs in as root
+    # No IdentityFile needed if your agent (e.g. 1Password) supplies the key.
 
-Host ha-pi
-    HostName pi.your-tailnet.ts.net
+Host 25e
+    HostName <apartment LAN address>   # only once there is a path onto that LAN
     Port 22
     User root
-    IdentityFile ~/.ssh/id_ed25519
 ```
 
-Test: `ssh ha-prox ha core info`. The instance file will reference the
-alias (`HA_SSH_HOST="ha-prox"`) and nothing else about the connection.
+Test: `ssh ha ha core info`. The instance file will reference the alias
+(`HA_SSH_HOST="ha"`) and nothing else about the connection.
 
 ## 4. Samba share
 
@@ -125,11 +124,9 @@ workgroup: WORKGROUP
 username: homeassistant
 password: <something>
 allow_hosts:
-  - 10.0.0.0/8
-  - 172.16.0.0/12
+  - 10.0.0.0/8           # the homelab LAN (10.15.0.0/16)
+  - 172.16.0.0/12        # includes the laptop's WireGuard address (172.16.0.2)
   - 192.168.0.0/16
-  - 100.64.0.0/10        # Tailscale addresses — without this the pi's share
-                         # is unreachable over Tailscale
   - fe80::/10
   - fc00::/7
 veto_files:
@@ -150,33 +147,36 @@ get `/Volumes/config` and `/Volumes/config-1`, and which is which depends on
 the order you connected. Mount explicitly instead:
 
 ```
-mkdir -p ~/mnt/ha-prox ~/mnt/ha-pi
-mount_smbfs //homeassistant@prox.your-tailnet.ts.net/config ~/mnt/ha-prox
-mount_smbfs //homeassistant@pi.your-tailnet.ts.net/config   ~/mnt/ha-pi
+mkdir -p ~/mnt/ha ~/mnt/25e
+mount_smbfs //homeassistant@ha.lan/config ~/mnt/ha
+# 25e: same shape, once its LAN is reachable from the laptop
 ```
 
-(`umount ~/mnt/ha-prox` to detach.) Put those paths in the instance files
+(`umount ~/mnt/ha` to detach.) Put those paths in the instance files
 as `HA_MOUNT`. Those directories are what Claude edits YAML in; they are
 gitignored if you ever put them under the repo.
 
-## 5. Tailscale (optional but recommended on both)
+## 5. Reachability
 
-Add-on store → **Tailscale**. Once both instances are on the tailnet with
-MagicDNS, use the `*.ts.net` names in `HA_URL`, the ssh `HostName`, and the
-mount commands, and everything works the same from any network.
+Nothing to install on the instance. The house is on the homelab LAN, which
+this laptop always joins over WireGuard, so `ha.lan` works for the API, ssh
+and the mount from wherever the laptop is. The public names
+(`ha.danieljy.com`, `25e.danieljy.com`, behind Cloudflare) reach the API only
+— fine as a fallback `HA_URL`, not for ssh or Samba. The apartment's LAN needs
+its own path before steps 2–4 can be used there from the laptop.
 
 ## 6. Verify from the laptop
 
 ```
-ssh ha-prox ha core info          # SSH + ha CLI
-ls ~/mnt/ha-prox/configuration.yaml   # mount
+ssh ha ha core info              # SSH + ha CLI
+ls ~/mnt/ha/configuration.yaml   # mount
 ```
 
 ## 7. Instance file
 
 ```
-cp instances/example.env instances/prox.env
-chmod 600 instances/prox.env
+cp instances/example.env instances/ha.env
+chmod 600 instances/ha.env
 ```
 
 Fill in the label, URL, token from step 1, ssh alias from step 3, mount from
@@ -184,8 +184,9 @@ step 4a. Then:
 
 ```
 bin/ha-ls                  # should show "up"
-bin/ha-detect -i prox      # should say os; paste the line it prints
+bin/ha-detect -i ha        # confirms the install type; paste the line it prints
 ```
 
-Repeat for `pi`, and set `HA_PROTECTED="true"` on whichever instance you
-can't easily walk over to.
+Repeat for `25e` when its LAN is reachable (the API part works now via the
+public name), and set `HA_PROTECTED="true"` on whichever instance you can't
+easily walk over to.

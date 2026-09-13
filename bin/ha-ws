@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# ha-ws — Home Assistant websocket API wrapper.
+#
+# usage: ha-ws [-i NAME] [--yes] [--raw] TYPE [key=value ...]
+#        ha-ws [-i NAME] [--yes] '{"type": "...", ...}'
+#        ha-ws [-i NAME] [--yes] --file CMDS.jsonl      one JSON command per line
+#
+# The REST API stops at states, services, templates and config entries. The
+# entity/device/area/label registries, helpers, users, dashboards and every
+# zwave_js/* command exist only on the websocket API — this is how the UI does
+# everything. Same token, same instance resolution, same protection guard.
+#
+# key=value: the value is parsed as JSON when it is valid JSON (null, true,
+# 123, ["a","b"], {"x":1}); otherwise it is taken as a string.
+#
+# examples:
+#   ha-ws -i ha get_config
+#   ha-ws -i ha config/area_registry/list
+#   ha-ws -i ha config/entity_registry/get entity_id=light.kitchen
+#   ha-ws -i ha zwave_js/node_status device_id=abc123
+#   ha-ws -i ha config/device_registry/update device_id=abc123 name_by_user="Garage Light"
+#   ha-ws -i ha --file remove.jsonl        # e.g. lines of {"type":"config/entity_registry/remove","entity_id":"..."}
+#
+# Read-only commands (…/list, …/get, get_*, …/info, …/status, ping, …) skip
+# the guard; anything else is treated as a write.
+#
+# exit status: 0 ok · 1 connection/auth failure · 2 no instance · 3 blocked by
+#              guard · 4 command returned an error · 64 usage
+# needs: python3 with the `websockets` package (pip3 install websockets)
+
+set -euo pipefail
+. "$(dirname "$0")/_common.sh"
+
+usage() { sed -n '2,/^$/p' "$0" | cut -c3- >&2; exit "${1:-64}"; }
+
+ha_parse_args "$@"
+RAW=0; FILE=""; POS=()
+i=0; n=${#HA_ARGS[@]}
+while [ $i -lt $n ]; do
+  a="${HA_ARGS[$i]}"
+  case "$a" in
+    --raw)     RAW=1 ;;
+    --file)    i=$((i+1)); FILE="${HA_ARGS[$i]:-}"; [ -n "$FILE" ] || usage 64 ;;
+    --file=*)  FILE="${a#--file=}" ;;
+    -h|--help) usage 0 ;;
+    *)         POS+=("$a") ;;
+  esac
+  i=$((i+1))
+done
+if [ -z "$FILE" ] && [ "${#POS[@]}" -eq 0 ]; then usage 64; fi
+if [ -n "$FILE" ] && [ ! -r "$FILE" ]; then ha_die "cannot read $FILE"; fi
+
+ha_resolve_instance
+ha_require_token
+ha_have python3 || ha_die "python3 not found"
+
+# Collect the command type(s) so the guard can be applied before connecting.
+READ_ONLY_RE='^([a-z0-9_]+/)*(list|get|get_[a-z0-9_]+|info|status|node_status|current_user|ping|search|related|available)$'
+types=""
+if [ -n "$FILE" ]; then
+  types="$(python3 -c 'import json,sys
+for l in open(sys.argv[1]):
+    l=l.strip()
+    if l and not l.startswith("#"): print(json.loads(l)["type"])' "$FILE")" || ha_die "$FILE: every non-comment line must be a JSON object with a \"type\""
+else
+  case "${POS[0]}" in
+    \{*) types="$(printf '%s' "${POS[0]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["type"])')" || ha_die "invalid JSON command" ;;
+    *)   types="${POS[0]}" ;;
+  esac
+fi
+writes=""
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  printf '%s' "$t" | grep -Eq "$READ_ONLY_RE" || writes="$writes $t"
+done <<< "$types"
+if [ -n "$writes" ]; then
+  ha_guard "websocket write(s):$writes"
+fi
+
+WS_URL="${HA_URL/#http/ws}/api/websocket"    # http→ws, https→wss
+
+# Token and URL reach python through the environment of this one child
+# process — not argv, not a file.
+export HA_WS_URL="$WS_URL" HA_WS_TOKEN="$HA_TOKEN" HA_WS_RAW="$RAW" HA_WS_FILE="$FILE"
+python3 - ${POS[@]+"${POS[@]}"} <<'PY'
+import json, os, sys
+try:
+    from websockets.sync.client import connect
+except ImportError:
+    sys.stderr.write("[ha] error: python package 'websockets' is missing (pip3 install websockets)\n"); sys.exit(1)
+
+url, token, raw, path = os.environ["HA_WS_URL"], os.environ["HA_WS_TOKEN"], os.environ["HA_WS_RAW"] == "1", os.environ["HA_WS_FILE"]
+
+def parse_value(v):
+    try: return json.loads(v)
+    except ValueError: return v
+
+# Build the command list.
+cmds = []
+if path:
+    for line in open(path):
+        line = line.strip()
+        if line and not line.startswith("#"):
+            cmds.append(json.loads(line))
+else:
+    args = sys.argv[1:]
+    if args[0].startswith("{"):
+        cmds.append(json.loads(args[0]))
+        args = args[1:]
+    else:
+        cmds.append({"type": args[0]}); args = args[1:]
+    for kv in args:
+        if "=" not in kv:
+            sys.stderr.write(f"[ha] error: expected key=value, got {kv!r}\n"); sys.exit(64)
+        k, v = kv.split("=", 1)
+        cmds[0][k] = parse_value(v)
+
+try:
+    ws = connect(url, max_size=None, open_timeout=10, close_timeout=5)
+except Exception as e:
+    sys.stderr.write(f"[ha] error: cannot connect to {url}: {e}\n"); sys.exit(1)
+
+results = []
+with ws:
+    msg = json.loads(ws.recv())
+    if msg.get("type") != "auth_required":
+        sys.stderr.write(f"[ha] error: unexpected greeting {msg.get('type')}\n"); sys.exit(1)
+    ws.send(json.dumps({"type": "auth", "access_token": token}))
+    msg = json.loads(ws.recv())
+    if msg.get("type") != "auth_ok":
+        sys.stderr.write(f"[ha] error: websocket auth failed: {msg.get('message', msg.get('type'))}\n"); sys.exit(1)
+    sys.stderr.write(f"[ha] ws connected, HA {msg.get('ha_version', '?')}\n")
+    for i, cmd in enumerate(cmds, start=1):
+        cmd = dict(cmd); cmd["id"] = i
+        ws.send(json.dumps(cmd))
+        while True:
+            r = json.loads(ws.recv())
+            if r.get("id") == i and r.get("type") == "result":
+                break
+        results.append((cmd, r))
+
+def dump(obj):
+    return json.dumps(obj) if raw else json.dumps(obj, indent=2, ensure_ascii=False)
+
+failed = 0
+if len(results) == 1:
+    cmd, r = results[0]
+    if r.get("success"):
+        print(dump(r.get("result")))
+    else:
+        err = r.get("error", {})
+        sys.stderr.write(f"[ha] {cmd['type']} failed: {err.get('code')}: {err.get('message')}\n"); failed = 1
+else:
+    for cmd, r in results:
+        label = cmd["type"] + "".join(f" {k}={v}" for k, v in cmd.items() if k not in ("type", "id"))
+        if r.get("success"):
+            print(f"ok    {label}" + ("" if r.get("result") is None else "  → " + json.dumps(r["result"])[:120]))
+        else:
+            err = r.get("error", {}); failed += 1
+            print(f"FAIL  {label}  → {err.get('code')}: {err.get('message')}")
+    sys.stderr.write(f"[ha] {len(results) - failed} ok, {failed} failed\n")
+sys.exit(4 if failed else 0)
+PY

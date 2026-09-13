@@ -11,6 +11,7 @@ by HA's own backups. This repo is safe to publish.
 bin/
   _common.sh        instance resolution, protection guard, HTTP helper (sourced by the rest)
   ha-api            REST wrapper:  ha-api -i NAME [--yes] METHOD PATH [JSON|@file|-]
+  ha-ws             websocket wrapper (registries, helpers, zwave_js/*):  ha-ws -i NAME TYPE [key=value ...]
   ha-ssh            ssh wrapper:   ha-ssh -i NAME [--yes] [COMMAND...]
   ha-ls             configured instances and whether each is reachable right now
   ha-detect         install type over the API → HA_INSTALL_TYPE line for the .env
@@ -44,7 +45,8 @@ SETUP-HAOS.md       per-instance setup: SSH add-on, keys, jq, Samba mount
 6. Optionally put `bin/` on your `PATH`.
 
 Requirements on the laptop: bash 3.2+ (macOS default is fine), curl, ssh;
-jq is optional but used for pretty-printing when present.
+jq is optional but used for pretty-printing when present. `ha-ws` needs
+python3 with the `websockets` package (`pip3 install websockets`).
 
 ## Selecting an instance
 

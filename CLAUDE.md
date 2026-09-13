@@ -36,6 +36,7 @@ Each does a job the others can't.
 | channel    | tool                        | use it for                                                                                        |
 |------------|-----------------------------|---------------------------------------------------------------------------------------------------|
 | REST API   | `bin/ha-api`                | live entity state, service calls, template rendering, config validation. Cannot edit hand-written YAML. |
+| Websocket  | `bin/ha-ws`                 | everything the Settings UI does: entity/device/area/label registries, helpers, users, `zwave_js/*` node info and config params. **Not** on REST. |
 | SSH        | `bin/ha-ssh`                | reloads, restarts, logs, the `ha` CLI (Supervisor, backups, add-ons, host).                        |
 | Filesystem | the mount at `HA_MOUNT`     | actual YAML editing with the Edit tool. Real file edits produce diffs; heredocs over ssh don't.     |
 
@@ -49,6 +50,7 @@ can't do it.
 bin/ha-ls                                  configured instances + reachability
 bin/ha-detect -i NAME                      install type → HA_INSTALL_TYPE line for the .env
 bin/ha-api    -i NAME [--yes] METHOD PATH [JSON|@file|-]
+bin/ha-ws     -i NAME [--yes] TYPE [key=value ...] | '{"type":...}' | --file CMDS.jsonl
 bin/ha-ssh    -i NAME [--yes] [COMMAND...] (no command = interactive shell)
 ```
 
@@ -108,6 +110,34 @@ bin/ha-api -i ha POST /api/template '{"template": "{{ states(\"sensor.x\") | flo
 ```
 
 Iterate there until the expression is right, then put it in YAML.
+
+## Websocket API (via `bin/ha-ws`)
+
+HA's REST API stops at states, services, templates, config check and config
+entries. **Registries, helpers, users, dashboards and all `zwave_js/*` commands
+exist only on the websocket API** — the UI itself uses websocket for them. Do
+not reach for a browser for these; use `ha-ws`. Read-only commands
+(`…/list`, `…/get`, `get_*`, `…/status`, …) skip the guard; anything else is a
+write. For bulk writes put one JSON command per line in a file and use
+`--file` — the list is then reviewable before it runs.
+
+```
+bin/ha-ws -i NAME config/entity_registry/list                 # 2,700+ rows; pipe to jq
+bin/ha-ws -i NAME config/entity_registry/get entity_id=light.kitchen
+bin/ha-ws -i NAME config/device_registry/list
+bin/ha-ws -i NAME config/area_registry/list
+bin/ha-ws -i NAME config/auth/list                            # users
+bin/ha-ws -i NAME zwave_js/node_status device_id=<device_id>  # status 4 = alive, 3 = dead, 1 = asleep
+bin/ha-ws -i NAME zwave_js/get_config_parameters device_id=<device_id>
+bin/ha-ws -i NAME config/device_registry/update device_id=<id> name_by_user="New Name" area_id=kitchen
+bin/ha-ws -i NAME config/entity_registry/remove entity_id=sensor.orphan   # only works for orphaned ("restored") entities
+bin/ha-ws -i NAME --file remove.jsonl                         # bulk; prints ok/FAIL per line
+```
+
+Values in `key=value` are JSON when they parse as JSON (`null`, `true`, `3`,
+`["a"]`), otherwise strings. The Supervisor also has a websocket proxy
+(`supervisor/api` with `endpoint`, `method`, `data`) but on `ha` the ssh route
+below is the proven one.
 
 ## Supervisor work: `ha` CLI and Supervisor API (via `bin/ha-ssh`)
 
@@ -196,7 +226,10 @@ versions also expose it as `/homeassistant`). Logs: `ha core logs`, or
    produce reviewable diffs; heredocs don't, and a mistyped path over ssh
    has no undo.
 
-8. Don't create or edit `instances/*.env`; the user maintains those. Don't
+8. When a registry or Z-Wave question comes up, the answer is `ha-ws`, not
+   the browser. The browser is for UI-only flows (pairing PINs, OAuth).
+
+9. Don't create or edit `instances/*.env`; the user maintains those. Don't
    create `.ha-instance`. Don't touch `.storage` — it is HA's own registry,
    edited only through the UI/API while HA runs.
 

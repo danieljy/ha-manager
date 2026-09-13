@@ -15,7 +15,31 @@
       "Bash(git status *)",
       "Bash(git diff)",
       "Bash(git diff *)",
-      "Bash(git log *)"
+      "Bash(git log *)",
+      "Bash(bin/ha-ws -i ha get_config *)",
+      "Bash(bin/ha-ws -i ha get_states *)",
+      "Bash(bin/ha-ws -i ha get_services *)",
+      "Bash(bin/ha-ws -i ha config/entity_registry/list *)",
+      "Bash(bin/ha-ws -i ha config/entity_registry/get *)",
+      "Bash(bin/ha-ws -i ha config/device_registry/list *)",
+      "Bash(bin/ha-ws -i ha config/area_registry/list *)",
+      "Bash(bin/ha-ws -i ha config/label_registry/list *)",
+      "Bash(bin/ha-ws -i ha config/auth/list *)",
+      "Bash(bin/ha-ws -i ha zwave_js/node_status *)",
+      "Bash(bin/ha-ws -i ha zwave_js/get_config_parameters *)",
+      "Bash(bin/ha-ws -i ha zwave_js/network_status *)",
+      "Bash(bin/ha-ws -i 25e get_config *)",
+      "Bash(bin/ha-ws -i 25e get_states *)",
+      "Bash(bin/ha-ws -i 25e get_services *)",
+      "Bash(bin/ha-ws -i 25e config/entity_registry/list *)",
+      "Bash(bin/ha-ws -i 25e config/entity_registry/get *)",
+      "Bash(bin/ha-ws -i 25e config/device_registry/list *)",
+      "Bash(bin/ha-ws -i 25e config/area_registry/list *)",
+      "Bash(bin/ha-ws -i 25e config/label_registry/list *)",
+      "Bash(bin/ha-ws -i 25e config/auth/list *)",
+      "Bash(bin/ha-ws -i 25e zwave_js/node_status *)",
+      "Bash(bin/ha-ws -i 25e zwave_js/get_config_parameters *)",
+      "Bash(bin/ha-ws -i 25e zwave_js/network_status *)"
     ],
     "ask": [
       "Bash(bin/ha-ssh *)",
@@ -23,7 +47,8 @@
       "Edit(//**/*.yaml)",
       "Edit(//**/*.yml)",
       "Write(//**/*.yaml)",
-      "Write(//**/*.yml)"
+      "Write(//**/*.yml)",
+      "Bash(bin/ha-ws *)"
     ],
     "deny": [
       "Read(/instances/*.env)",

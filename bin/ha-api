@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# ha-api — REST wrapper for one Home Assistant instance.
+#
+# usage: ha-api [-i NAME] [--yes] [--raw] METHOD PATH [BODY]
+#
+#   METHOD   GET | POST | PUT | PATCH | DELETE
+#   PATH     /api/states, /states or states — "/api" is prepended if missing
+#   BODY     inline JSON, @file, or - to read stdin
+#   --raw    don't pretty-print through jq
+#
+# examples:
+#   ha-api -i prox GET /api/config
+#   ha-api -i prox GET /api/states/light.kitchen
+#   ha-api -i prox POST /api/template '{"template": "{{ states.light | list | count }}"}'
+#   ha-api -i prox POST /api/services/light/turn_on '{"entity_id": "light.kitchen"}'
+#
+# The token comes from instances/NAME.env and reaches curl through a private
+# config file; it is never put on a command line or echoed. Every non-GET
+# goes through the protection guard except the read-only-in-effect POSTs
+# listed in SAFE_POSTS (template render, config check, backup creation).
+#
+# exit status: 0 on 2xx · 1 curl failure · 2 no instance · 3 blocked by guard
+#              4 non-2xx HTTP status · 64 usage
+
+set -euo pipefail
+. "$(dirname "$0")/_common.sh"
+
+usage() { sed -n '2,/^$/p' "$0" | cut -c3- >&2; exit "${1:-64}"; }
+
+SAFE_POSTS="/api/template /api/config/core/check_config /api/hassio/backups/new/full /api/hassio/backups/new/partial"
+
+ha_parse_args "$@"
+
+RAW=0
+POS=()
+for a in ${HA_ARGS[@]+"${HA_ARGS[@]}"}; do
+  case "$a" in
+    --raw)     RAW=1 ;;
+    -h|--help) usage 0 ;;
+    *)         POS+=("$a") ;;
+  esac
+done
+[ "${#POS[@]}" -ge 2 ] || usage 64
+
+METHOD="$(printf '%s' "${POS[0]}" | tr '[:lower:]' '[:upper:]')"
+API_PATH="$(ha_api_path "${POS[1]}")"
+BODY="${POS[2]:-}"
+
+case "$METHOD" in
+  GET|POST|PUT|PATCH|DELETE) ;;
+  *) ha_die "unsupported method '$METHOD'" ;;
+esac
+
+case "$BODY" in
+  -)  BODY="$(cat)" ;;
+  @*) BODY="$(cat "${BODY#@}")" ;;
+esac
+
+ha_resolve_instance
+ha_require_token
+
+# Route writes through the guard.
+needs_guard=1
+if [ "$METHOD" = GET ]; then
+  needs_guard=0
+elif [ "$METHOD" = POST ]; then
+  for p in $SAFE_POSTS; do
+    if [ "$p" = "$API_PATH" ]; then needs_guard=0; fi
+  done
+fi
+if [ "$needs_guard" = 1 ]; then
+  ha_guard "$METHOD $API_PATH"
+fi
+
+set +e
+ha_request "$METHOD" "$API_PATH" "$BODY"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  ha_die "request did not complete (curl exit $rc) — is $HA_INSTANCE_NAME reachable from this network? try bin/ha-ls"
+fi
+
+ha_print_response "$HA_RESPONSE" "$RAW"
+
+case "$HA_HTTP_STATUS" in
+  2*) exit 0 ;;
+  401|403)
+    ha_log "HTTP $HA_HTTP_STATUS from $METHOD $API_PATH — token rejected (revoked? wrong instance? Supervisor paths need an admin user)"
+    exit 4 ;;
+  *)
+    ha_log "HTTP $HA_HTTP_STATUS from $METHOD $API_PATH"
+    exit 4 ;;
+esac

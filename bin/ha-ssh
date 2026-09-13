@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# ha-ssh — run a command on an instance's host over SSH, or open a shell.
+#
+# usage: ha-ssh [-i NAME] [--yes] [COMMAND...]
+#
+# No COMMAND opens an interactive shell. Flags must come first: everything
+# from the first non-flag word on is handed to the remote shell verbatim, so
+# `ha-ssh -i prox grep -i foo /config/x.yaml` works as expected.
+#
+# Commands that restart, reload, stop, update, delete, move or overwrite
+# (including `>` redirects, tee, cp, sed -i) go through the protection guard.
+# For YAML changes prefer editing the mounted config dir — that produces a
+# diff; a heredoc through ssh does not.
+#
+# examples:
+#   ha-ssh -i prox ha core check
+#   ha-ssh -i prox ha core logs
+#   ha-ssh -i pi  --yes ha core restart
+#
+# exit status: ssh's, or 2 no instance · 3 blocked by guard
+
+set -euo pipefail
+. "$(dirname "$0")/_common.sh"
+
+usage() { sed -n '2,/^$/p' "$0" | cut -c3- >&2; exit "${1:-64}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
+
+HA_PARSE_STOP_AT_POSITIONAL=1
+ha_parse_args "$@"
+ha_resolve_instance
+[ -n "$HA_SSH_HOST" ] || ha_die "HA_SSH_HOST is empty in $HA_INSTANCE_FILE"
+
+if [ "${#HA_ARGS[@]}" -eq 0 ]; then
+  if ha_is_protected; then
+    ha_warn "opening an interactive shell on PROTECTED instance $HA_INSTANCE_NAME — the guard can't see what you type there"
+  fi
+  ha_log "ssh $HA_SSH_HOST (interactive)"
+  exec ssh "$HA_SSH_HOST"
+fi
+
+CMD="${HA_ARGS[*]}"
+
+# Words that change state on the host, matched as whole words (a "/" or "."
+# before the word is not a boundary, so /config/restart_notify.yaml is not a
+# hit), plus any `>` redirect that isn't a fd dup like 2>&1.
+GUARDED_WORDS='restart|reload|reboot|shutdown|poweroff|halt|stop|kill|killall|uninstall|remove|delete|rm|rmdir|unlink|truncate|mv|cp|tee|update|upgrade|rebuild|repair|restore|wipe|format|dd|mkfs'
+GUARDED_RE="(^|[^[:alnum:]_./-])($GUARDED_WORDS)([^[:alnum:]_-]|\$)|(^|[^0-9])>|sed[[:space:]]+-[[:alnum:]]*i"
+
+if printf '%s\n' "$CMD" | grep -Eq "$GUARDED_RE"; then
+  ha_guard "ssh command: $CMD"
+fi
+
+ha_log "ssh $HA_SSH_HOST: $CMD"
+exec ssh "$HA_SSH_HOST" "$CMD"

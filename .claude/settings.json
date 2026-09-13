@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bin/ha-ls *)",
+      "Bash(./bin/ha-ls *)",
+      "Bash(bin/ha-detect *)",
+      "Bash(./bin/ha-detect *)",
+      "Bash(bin/ha-api GET *)",
+      "Bash(./bin/ha-api GET *)",
+      "Bash(bin/ha-api -i prox GET *)",
+      "Bash(bin/ha-api -i pi GET *)",
+      "Bash(./bin/ha-api -i prox GET *)",
+      "Bash(./bin/ha-api -i pi GET *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff)",
+      "Bash(git diff *)",
+      "Bash(git log *)"
+    ],
+    "ask": [
+      "Bash(bin/ha-ssh *)",
+      "Bash(./bin/ha-ssh *)",
+      "Edit(//**/*.yaml)",
+      "Edit(//**/*.yml)",
+      "Write(//**/*.yaml)",
+      "Write(//**/*.yml)"
+    ],
+    "deny": [
+      "Read(/instances/*.env)",
+      "Read(instances/*.env)",
+      "Read(//**/secrets.yaml)",
+      "Read(//**/.storage/**)",
+      "Edit(/instances/*.env)",
+      "Edit(//**/secrets.yaml)",
+      "Edit(//**/.storage/**)",
+      "Write(//**/secrets.yaml)",
+      "Write(//**/.storage/**)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(sftp *)",
+      "Bash(cat instances/*)",
+      "Bash(cat ./instances/*)",
+      "Bash(head instances/*)",
+      "Bash(head ./instances/*)",
+      "Bash(tail instances/*)",
+      "Bash(tail ./instances/*)",
+      "Bash(less instances/*)",
+      "Bash(source instances/*)",
+      "Bash(. instances/*)"
+    ]
+  }
+}

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# ha-ls — list configured instances and whether each is reachable right now.
+#
+# usage: ha-ls [--no-probe]
+#
+# STATUS is a GET /api/ with the instance's token (3 s connect timeout):
+#   up              200 — reachable and the token is accepted
+#   up, bad token   401/403 — reachable, token rejected (or empty)
+#   up, HTTP n      reachable, something else answered
+#   down            no HTTP response: wrong network, host off, or wrong URL
+#   no url          HA_URL is empty in the instance file
+#   -               --no-probe given
+#
+# This lists every instance, so it prints no "[ha] instance:" line.
+
+set -euo pipefail
+. "$(dirname "$0")/_common.sh"
+
+usage() { sed -n '2,/^$/p' "$0" | cut -c3- >&2; exit "${1:-64}"; }
+
+PROBE=1
+for a in "$@"; do
+  case "$a" in
+    --no-probe) PROBE=0 ;;
+    -h|--help)  usage 0 ;;
+    *)          usage 64 ;;
+  esac
+done
+
+names="$(ha_list_instances)"
+if [ -z "$names" ]; then
+  echo "no instances configured — copy instances/example.env to instances/<name>.env" >&2
+  exit 1
+fi
+
+# First pass: column widths.
+wn=4; wl=5
+for name in $names; do
+  ha_load_instance_file "$HA_INSTANCES_DIR/$name.env" 2>/dev/null
+  if [ ${#name} -gt $wn ]; then wn=${#name}; fi
+  if [ ${#HA_LABEL} -gt $wl ]; then wl=${#HA_LABEL}; fi
+done
+
+HA_CONNECT_TIMEOUT=3
+HA_MAX_TIME=6
+
+printf '%-*s  %-*s  %-10s  %-9s  %s\n' "$wn" NAME "$wl" LABEL TYPE PROTECTED STATUS
+for name in $names; do
+  HA_INSTANCE_FILE="$HA_INSTANCES_DIR/$name.env"
+  HA_INSTANCE_NAME="$name"
+  ha_load_instance_file "$HA_INSTANCE_FILE"
+
+  prot=no
+  if ha_is_protected; then prot=yes; fi
+
+  if [ -z "$HA_URL" ]; then
+    status="no url"
+  elif [ "$PROBE" = 0 ]; then
+    status="-"
+  elif ha_request GET /api/ 2>/dev/null; then
+    case "$HA_HTTP_STATUS" in
+      200)     status="up" ;;
+      401|403) status="up, bad token" ;;
+      *)       status="up, HTTP $HA_HTTP_STATUS" ;;
+    esac
+  else
+    status="down"
+  fi
+
+  printf '%-*s  %-*s  %-10s  %-9s  %s\n' \
+    "$wn" "$name" "$wl" "${HA_LABEL:--}" "${HA_INSTALL_TYPE:-?}" "$prot" "$status"
+done

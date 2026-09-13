@@ -1,0 +1,24 @@
+# Per-instance config — holds tokens, local only. The template is the one exception.
+instances/*
+!instances/example.env
+
+# Per-checkout default instance (read by bin/_common.sh)
+.ha-instance
+
+# Claude Code personal overrides
+.claude/settings.local.json
+
+# Mounted or synced copies of an instance's config dir — HA config is never
+# committed here; it is protected by HA's own backups, not by this repo.
+mounts/
+mnt/
+*.mount/
+config-*/
+
+# Scratch and inventory output
+scratch/
+inventory/
+*.tmp
+
+# OS noise
+.DS_Store

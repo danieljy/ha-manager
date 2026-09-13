@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# ha-detect — work out an instance's install type over the API and print the
+# HA_INSTALL_TYPE line to paste into instances/NAME.env.
+#
+# usage: ha-detect [-i NAME]
+#
+# Read-only; two or three GETs:
+#   1. /api/config            Core version and config_dir
+#   2. /api/hassio/info       Supervisor proxy — 404 when there is no Supervisor
+#   3. /api/hassio/host/info  fallback for the host OS string
+#
+#   no Supervisor, config_dir is /config   → container
+#   no Supervisor, config_dir elsewhere    → core
+#   Supervisor on a Home Assistant OS host → os
+#   Supervisor on any other host OS        → supervised
+#
+# The config line goes to stdout; everything else to stderr.
+
+set -euo pipefail
+. "$(dirname "$0")/_common.sh"
+
+usage() { sed -n '2,/^$/p' "$0" | cut -c3- >&2; exit "${1:-64}"; }
+case "${1:-}" in -h|--help) usage 0 ;; esac
+
+ha_parse_args "$@"
+if [ "${#HA_ARGS[@]}" -ne 0 ]; then usage 64; fi
+ha_resolve_instance
+ha_require_token
+
+# json_get FILE .a.b — scalar at a path; jq when present, else a crude sed
+# that finds the first "lastkey": "string" (good enough for the fields here).
+json_get() {
+  local file="$1" key="$2" last
+  if ha_have jq; then
+    jq -r "$key // empty" "$file" 2>/dev/null || true
+  else
+    last="${key##*.}"
+    sed -n 's/.*"'"$last"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n1
+  fi
+}
+
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# 1. Core config ------------------------------------------------------------
+if ! ha_request GET /api/config; then
+  ha_die "cannot reach $HA_INSTANCE_NAME at $HA_URL from this network (try bin/ha-ls)"
+fi
+case "$HA_HTTP_STATUS" in
+  200) ;;
+  401|403) ha_die "token rejected by $HA_INSTANCE_NAME (HTTP $HA_HTTP_STATUS)" ;;
+  *)       ha_die "GET /api/config returned HTTP $HA_HTTP_STATUS" ;;
+esac
+version="$(json_get "$HA_RESPONSE" .version)"
+config_dir="$(json_get "$HA_RESPONSE" .config_dir)"
+ha_log "core: ${version:-unknown version}, config_dir=${config_dir:-unknown}"
+
+# 2. Supervisor proxy -------------------------------------------------------
+supervisor=no
+host_os=""
+hassos=""
+if ! ha_request GET /api/hassio/info; then
+  ha_die "connection dropped while probing the Supervisor proxy"
+fi
+case "$HA_HTTP_STATUS" in
+  200)
+    supervisor=yes
+    hassos="$(json_get "$HA_RESPONSE" .data.hassos)"
+    host_os="$(json_get "$HA_RESPONSE" .data.operating_system)"
+    ;;
+  404|400|405)
+    supervisor=no ;;
+  401|403)
+    ha_die "the Supervisor proxy refused the token (HTTP $HA_HTTP_STATUS) — /api/hassio/* needs a token from an administrator user" ;;
+  *)
+    ha_die "unexpected HTTP $HA_HTTP_STATUS from /api/hassio/info" ;;
+esac
+
+# 3. Host OS fallback -------------------------------------------------------
+if [ "$supervisor" = yes ] && [ -z "$host_os" ]; then
+  if ha_request GET /api/hassio/host/info && [ "$HA_HTTP_STATUS" = 200 ]; then
+    host_os="$(json_get "$HA_RESPONSE" .data.operating_system)"
+  fi
+fi
+
+# Decide ----------------------------------------------------------------------
+if [ "$supervisor" = yes ]; then
+  ha_log "supervisor: present (host: ${host_os:-unknown OS}${hassos:+, hassos $hassos})"
+  case "$(lower "$host_os")" in
+    *"home assistant os"*|*hassos*|*haos*) install_type=os ;;
+    *) if [ -n "$hassos" ]; then install_type=os; else install_type=supervised; fi ;;
+  esac
+else
+  ha_log "supervisor: absent (/api/hassio/info → HTTP $HA_HTTP_STATUS)"
+  if [ "$config_dir" = /config ]; then install_type=container; else install_type=core; fi
+fi
+
+ha_log "install type: $install_type"
+case "$install_type" in
+  supervised) ha_warn "Supervised installs are unsupported as of Home Assistant 2025.12.0 — plan a move to Home Assistant OS or Container" ;;
+  core)       ha_warn "Core (venv) installs were deprecated in Home Assistant 2025.6 — plan a move to Home Assistant OS or Container" ;;
+esac
+if [ -n "$HA_INSTALL_TYPE" ] && [ "$HA_INSTALL_TYPE" != "$install_type" ]; then
+  ha_warn "instances/$HA_INSTANCE_NAME.env currently says HA_INSTALL_TYPE=\"$HA_INSTALL_TYPE\""
+fi
+
+printf '\n# paste into instances/%s.env:\n' "$HA_INSTANCE_NAME" >&2
+printf 'HA_INSTALL_TYPE="%s"\n' "$install_type"
+printf '\n# note: Supervised is unsupported as of Home Assistant 2025.12.0; Core was deprecated in 2025.6.\n' >&2
